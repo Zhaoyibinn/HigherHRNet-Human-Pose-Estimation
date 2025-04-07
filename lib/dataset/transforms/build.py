@@ -13,9 +13,11 @@ from . import transforms as T
 
 
 FLIP_CONFIG = {
-    'COCO': [
-        0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15
-    ],
+    # 'COCO': [
+    #     0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15
+    # ],
+    'COCO': [0],
+    # 'COCO': [],
     'COCO_WITH_CENTER': [
         0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15, 17
     ],
@@ -25,6 +27,7 @@ FLIP_CONFIG = {
     'CROWDPOSE_WITH_CENTER': [
         1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 12, 13, 14
     ]
+    
 }
 
 
@@ -53,10 +56,13 @@ def build_transforms(cfg, is_train=True):
     # coco_flip_index = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
     # if cfg.DATASET.WITH_CENTER:
         # coco_flip_index.append(17)
+
     if 'coco' in cfg.DATASET.DATASET:
         dataset_name = 'COCO'
     elif 'crowd_pose' in cfg.DATASET.DATASET:
         dataset_name = 'CROWDPOSE'
+
+    
     else:
         raise ValueError('Please implement flip_index for new dataset: %s.' % cfg.DATASET.DATASET)
     if cfg.DATASET.WITH_CENTER:

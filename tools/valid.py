@@ -37,12 +37,16 @@ from fp16_utils.fp16util import network_to_half
 from utils.utils import create_logger
 from utils.utils import get_model_summary
 from utils.vis import save_debug_images
-from utils.vis import save_valid_image
+from utils.vis import save_valid_image,return_valid_image
 from utils.transforms import resize_align_multi_scale
 from utils.transforms import get_final_preds
 from utils.transforms import get_multi_scale_size
 
 torch.multiprocessing.set_sharing_strategy('file_system')
+
+
+import cv2
+import numpy as np
 
 
 def parse_args():
@@ -52,6 +56,7 @@ def parse_args():
                         help='experiment configure file name',
                         required=True,
                         type=str)
+    
 
     parser.add_argument('opts',
                         help="Modify config options using the command-line",
@@ -115,7 +120,8 @@ def main():
 
     if cfg.TEST.MODEL_FILE:
         logger.info('=> loading model from {}'.format(cfg.TEST.MODEL_FILE))
-        model.load_state_dict(torch.load(cfg.TEST.MODEL_FILE), strict=True)
+        # model.load_state_dict(torch.load(cfg.TEST.MODEL_FILE), strict=True)
+        model.load_state_dict(torch.load(cfg.TEST.MODEL_FILE), strict=False)
     else:
         model_state_file = os.path.join(
             final_output_dir, 'model_best.pth.tar'
@@ -150,7 +156,167 @@ def main():
     all_scores = []
 
     pbar = tqdm(total=len(test_dataset)) if cfg.TEST.LOG_PROGRESS else None
+
+    if cfg.OWN:
+        import pyrealsense2 as rs
+
+        now_id=0
+        align_to = rs.stream.color
+        align = rs.align(align_to)
+
+        #深度图帧图像滤波器
+        hole_filling_filter=rs.hole_filling_filter(2)
+
+        #配置文件
+        pipe = rs.pipeline()
+        cfg_rs = rs.config()
+        profile = pipe.start(cfg_rs)
+        # D400相机开启参数
+        cfg_rs.enable_stream(rs.stream.depth,640,480,rs.format.z16,30)
+        cfg_rs.enable_stream(rs.stream.color,640,480,rs.format.bgr8,30)
+
+        try:
+            while True:
+                #获取帧图像
+                frame = pipe.wait_for_frames()
+
+                #对齐之后的frame
+                aligned_frame = align.process(frame)
+
+                #获得数据帧
+                depth_frame = aligned_frame.get_depth_frame()
+                color_frame = aligned_frame.get_color_frame()
+
+                # 深度参数，像素坐标系转相机坐标系用到，要拿彩色作为内参，因为深度图会对齐到彩色相机
+                color_intrin = color_frame.profile.as_video_stream_profile().intrinsics
+                # print('color_intrin:', color_intrin)
+
+                #将深度图彩色化的工具
+                colorizer = rs.colorizer()
+
+                #将彩色图和深度图进行numpy化
+                depth_image = np.asanyarray(depth_frame.get_data())
+                color_image = np.asanyarray(color_frame.get_data())
+                # color_image = cv2.cvtColor(color_image, cv2.COLOR_RGB2BGR)
+
+                #输入视频
+                # out.write(color_image)
+                #将深度图彩色化     
+                colorized_depth = np.asanyarray(colorizer.colorize(depth_frame).get_data())
+                all_images = np.hstack((color_image, colorized_depth))
+                
+                image = color_image
+                base_size, center, scale = get_multi_scale_size(
+                    image, cfg.DATASET.INPUT_SIZE, 1.0, min(cfg.TEST.SCALE_FACTOR)
+                )
+                with torch.no_grad():
+                    final_heatmaps = None
+                    tags_list = []
+                    for idx, s in enumerate(sorted(cfg.TEST.SCALE_FACTOR, reverse=True)):
+                        input_size = cfg.DATASET.INPUT_SIZE
+                        image_resized, center, scale = resize_align_multi_scale(
+                            image, input_size, s, min(cfg.TEST.SCALE_FACTOR)
+                        )
+                        image_resized = transforms(image_resized)
+                        image_resized = image_resized.unsqueeze(0).cuda()
+
+                        outputs, heatmaps, tags = get_multi_stage_outputs(
+                            cfg, model, image_resized, cfg.TEST.FLIP_TEST,
+                            cfg.TEST.PROJECT2IMAGE, base_size
+                        )
+
+                        final_heatmaps, tags_list = aggregate_results(
+                            cfg, s, final_heatmaps, tags_list, heatmaps, tags
+                        )
+
+                    final_heatmaps = final_heatmaps / float(len(cfg.TEST.SCALE_FACTOR))
+                    tags = torch.cat(tags_list, dim=4)
+                    grouped, scores = parser.parse(
+                        final_heatmaps, tags, cfg.TEST.ADJUST, cfg.TEST.REFINE
+                    )
+
+                    final_results = get_final_preds(
+                        grouped, center, scale,
+                        [final_heatmaps.size(3), final_heatmaps.size(2)]
+                    )
+
+                
+
+                    # results = final_results  # predict on an image
+                    prefix  = "output/test_output/test"
+                    results_image = return_valid_image(image, final_results, '{}.jpg'.format(prefix), dataset=test_dataset.name)
+
+
+
+
+
+
+
+                # 图像展示
+                cv2.imshow('all_images', results_image)
+
+                #帧数设定
+                key = cv2.waitKey(30)
+
+                now_id+=1
+
+
+
+                #按键事件
+                if key == ord("q"):
+                    print('用户退出！')
+                    break
+
+
+
+        finally:
+            pipe.stop()
+        # image_path = "data/LEGO/images/train/01.png"
+        image_path = "data/chatou/images/train/117.png"
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image,cv2.COLOR_RGB2BGR)
+        base_size, center, scale = get_multi_scale_size(
+            image, cfg.DATASET.INPUT_SIZE, 1.0, min(cfg.TEST.SCALE_FACTOR)
+        )
+        with torch.no_grad():
+            final_heatmaps = None
+            tags_list = []
+            for idx, s in enumerate(sorted(cfg.TEST.SCALE_FACTOR, reverse=True)):
+                input_size = cfg.DATASET.INPUT_SIZE
+                image_resized, center, scale = resize_align_multi_scale(
+                    image, input_size, s, min(cfg.TEST.SCALE_FACTOR)
+                )
+                image_resized = transforms(image_resized)
+                image_resized = image_resized.unsqueeze(0).cuda()
+
+                outputs, heatmaps, tags = get_multi_stage_outputs(
+                    cfg, model, image_resized, cfg.TEST.FLIP_TEST,
+                    cfg.TEST.PROJECT2IMAGE, base_size
+                )
+
+                final_heatmaps, tags_list = aggregate_results(
+                    cfg, s, final_heatmaps, tags_list, heatmaps, tags
+                )
+
+            final_heatmaps = final_heatmaps / float(len(cfg.TEST.SCALE_FACTOR))
+            tags = torch.cat(tags_list, dim=4)
+            grouped, scores = parser.parse(
+                final_heatmaps, tags, cfg.TEST.ADJUST, cfg.TEST.REFINE
+            )
+
+            final_results = get_final_preds(
+                grouped, center, scale,
+                [final_heatmaps.size(3), final_heatmaps.size(2)]
+            )
+            prefix  = "output/test_output/test"
+            save_valid_image(image, final_results, '{}.jpg'.format(prefix), dataset=test_dataset.name)
+            exit()
+
+
+
     for i, (images, annos) in enumerate(data_loader):
+
+        print(f"imagg {i} operated")
         assert 1 == images.size(0), 'Test batch size should be 1'
 
         image = images[0].cpu().numpy()

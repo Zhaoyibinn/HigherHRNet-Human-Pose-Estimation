@@ -36,7 +36,8 @@ class CocoKeypoints(CocoDataset):
         if cfg.DATASET.WITH_CENTER:
             assert cfg.DATASET.NUM_JOINTS == 18, 'Number of joint with center for COCO is 18'
         else:
-            assert cfg.DATASET.NUM_JOINTS == 17, 'Number of joint for COCO is 17'
+            # assert cfg.DATASET.NUM_JOINTS == 17, 'Number of joint for COCO is 17'
+            print(f"检测到非COCO数据集,关节点个数：{cfg.DATASET.NUM_JOINTS}")
 
         self.num_scales = self._init_check(heatmap_generator, joints_generator)
 

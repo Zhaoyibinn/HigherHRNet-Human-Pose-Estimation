@@ -16,6 +16,7 @@ import numpy as np
 import torchvision
 
 from dataset import VIS_CONFIG
+import os
 
 
 def add_joints(image, joints, color, dataset='COCO'):
@@ -55,7 +56,20 @@ def save_valid_image(image, joints, file_name, dataset='COCO'):
         color = [int(i) for i in color]
         add_joints(image, person, color, dataset=dataset)
 
+    folder = os.path.dirname(file_name)
+    if not os.path.exists(folder):
+        os.makedirs(folder)
     cv2.imwrite(file_name, image)
+
+def return_valid_image(image, joints, file_name, dataset='COCO'):
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    for person in joints:
+        color = np.random.randint(0, 255, size=3)
+        color = [int(i) for i in color]
+        add_joints(image, person, color, dataset=dataset)
+
+    return image
 
 
 def make_heatmaps(image, heatmaps):
