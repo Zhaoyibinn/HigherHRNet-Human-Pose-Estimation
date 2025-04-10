@@ -32,6 +32,7 @@ def conv3x3(in_planes, out_planes, stride=1):
 
 class BasicBlock(nn.Module):
     expansion = 1
+    # 就是个resnet 也就是后面的block
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
@@ -86,19 +87,24 @@ class Bottleneck(nn.Module):
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
+        # 过一遍1*1卷积
 
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu(out)
+        # 过一遍3*3卷积
 
         out = self.conv3(out)
         out = self.bn3(out)
+        # 升维 维度 * 4
 
         if self.downsample is not None:
             residual = self.downsample(x)
+            # 残差和our变成一样的维度 用简单的卷积
 
         out += residual
         out = self.relu(out)
+        # 加到一起输出
 
         return out
 
@@ -144,6 +150,7 @@ class HighResolutionModule(nn.Module):
     def _make_one_branch(self, branch_index, block, num_blocks, num_channels,
                          stride=1):
         downsample = None
+        # 在官方文档里似乎一直downsample = None
         if stride != 1 or \
            self.num_inchannels[branch_index] != num_channels[branch_index] * block.expansion:
             downsample = nn.Sequential(
@@ -157,12 +164,14 @@ class HighResolutionModule(nn.Module):
         layers = []
         layers.append(block(self.num_inchannels[branch_index],
                             num_channels[branch_index], stride, downsample))
+        # 每层都自己先过一个ResNet
+                    
         self.num_inchannels[branch_index] = \
             num_channels[branch_index] * block.expansion
         for i in range(1, num_blocks[branch_index]):
             layers.append(block(self.num_inchannels[branch_index],
                                 num_channels[branch_index]))
-
+        # 这里就是每个branch来多少层，第一层因为涉及到变形所以单独提出来，本质上就是多少个resnet
         return nn.Sequential(*layers)
 
     def _make_branches(self, num_branches, block, num_blocks, num_channels):
@@ -175,6 +184,7 @@ class HighResolutionModule(nn.Module):
         return nn.ModuleList(branches)
 
     def _make_fuse_layers(self):
+        # 就是一个两两完全交叉的混合层
         if self.num_branches == 1:
             return None
 
@@ -194,9 +204,11 @@ class HighResolutionModule(nn.Module):
                                   bias=False),
                         nn.BatchNorm2d(num_inchannels[i]),
                         nn.Upsample(scale_factor=2**(j-i), mode='nearest')))
+                    # 如果j > i 像素变大 那么就过CNN之后上采样2**(j-i)
                 elif j == i:
                     fuse_layer.append(None)
                 else:
+                    # 如果j < i 像素变小
                     conv3x3s = []
                     for k in range(i-j):
                         if k == i - j - 1:
@@ -206,8 +218,10 @@ class HighResolutionModule(nn.Module):
                                           num_outchannels_conv3x3,
                                           3, 2, 1, bias=False),
                                 nn.BatchNorm2d(num_outchannels_conv3x3)))
+                            # 循环卷积变小，每次变小一半
                         else:
                             num_outchannels_conv3x3 = num_inchannels[j]
+                            # 前面的通道数都和输出保持一样，最后一层和输出保持一样
                             conv3x3s.append(nn.Sequential(
                                 nn.Conv2d(num_inchannels[j],
                                           num_outchannels_conv3x3,
@@ -223,11 +237,14 @@ class HighResolutionModule(nn.Module):
         return self.num_inchannels
 
     def forward(self, x):
+        # 高分辨率模块 关键
         if self.num_branches == 1:
             return [self.branches[0](x[0])]
 
         for i in range(self.num_branches):
             x[i] = self.branches[i](x[i])
+
+        # 每个branch都先过几层resnet
 
         x_fuse = []
 
@@ -238,8 +255,9 @@ class HighResolutionModule(nn.Module):
                     y = y + x[j]
                 else:
                     y = y + self.fuse_layers[i][j](x[j])
+            # 每层在fuse的基础上还要加原本的自己
             x_fuse.append(self.relu(y))
-
+        
         return x_fuse
 
 
@@ -315,6 +333,8 @@ class PoseHigherResolutionNet(nn.Module):
         final_layers = []
         output_channels = cfg.MODEL.NUM_JOINTS + dim_tag \
             if cfg.LOSS.WITH_AE_LOSS[0] else cfg.MODEL.NUM_JOINTS
+
+        # 如果有这个WITH_AE_LOSS那就是NUM_JOINTS*2 如果没有就是NUM_JOINTS
         final_layers.append(nn.Conv2d(
             in_channels=input_channels,
             out_channels=output_channels,
@@ -324,6 +344,7 @@ class PoseHigherResolutionNet(nn.Module):
         ))
 
         deconv_cfg = extra.DECONV
+        # 反卷积后的final
         for i in range(deconv_cfg.NUM_DECONVS):
             input_channels = deconv_cfg.NUM_CHANNELS[i]
             output_channels = cfg.MODEL.NUM_JOINTS + dim_tag \
@@ -366,10 +387,13 @@ class PoseHigherResolutionNet(nn.Module):
                 nn.BatchNorm2d(output_channels, momentum=BN_MOMENTUM),
                 nn.ReLU(inplace=True)
             ))
+            # 反卷积 变大
             for _ in range(cfg.MODEL.EXTRA.DECONV.NUM_BASIC_BLOCKS):
                 layers.append(nn.Sequential(
                     BasicBlock(output_channels, output_channels),
                 ))
+
+                # 再反卷积之后跟着一串basic
             deconv_layers.append(nn.Sequential(*layers))
             input_channels = output_channels
 
@@ -390,6 +414,8 @@ class PoseHigherResolutionNet(nn.Module):
 
     def _make_transition_layer(
             self, num_channels_pre_layer, num_channels_cur_layer):
+        # 创建过渡层 就是一层变两层 两层变四层中间的过渡
+        # 输入是输入layer的每个通道数和输出layer的每个通道数
         num_branches_cur = len(num_channels_cur_layer)
         num_branches_pre = len(num_channels_pre_layer)
 
@@ -409,11 +435,16 @@ class PoseHigherResolutionNet(nn.Module):
                 else:
                     transition_layers.append(None)
             else:
+                # 如果是新的 那么就stride=2缩小一半分辨率
                 conv3x3s = []
                 for j in range(i+1-num_branches_pre):
+                    # 输出比输入大几就循环几次
                     inchannels = num_channels_pre_layer[-1]
+                    # 都从输入层的最后一个输入
                     outchannels = num_channels_cur_layer[i] \
                         if j == i-num_branches_pre else inchannels
+                    # 如果是最后一个就用num_channels_cur_layer[i] 不然就输入输出channel一样
+                    # 不是太理解是为什么 不过在官方的结构中也没有不是最后一个的情况
                     conv3x3s.append(nn.Sequential(
                         nn.Conv2d(
                             inchannels, outchannels, 3, 2, 1, bias=False),
@@ -434,6 +465,7 @@ class PoseHigherResolutionNet(nn.Module):
 
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
+        # 其实是在这里定义bottleneck的
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes))
@@ -454,6 +486,7 @@ class PoseHigherResolutionNet(nn.Module):
             # multi_scale_output is only used last module
             if not multi_scale_output and i == num_modules - 1:
                 reset_multi_scale_output = False
+                # 如果是最后一个stage的最后一组
             else:
                 reset_multi_scale_output = True
 
@@ -472,13 +505,21 @@ class PoseHigherResolutionNet(nn.Module):
         return nn.Sequential(*modules), num_inchannels
 
     def forward(self, x):
+        # 输入是一个 B * 3 * H * H(512)
         x = self.conv1(x)
+        # 卷积为 B * 64 * H/2 * H/2
         x = self.bn1(x)
+        # 批量归一化层
         x = self.relu(x)
+        # relu
         x = self.conv2(x)
+        # 卷积为 B * 64 * H/4 * H/4
         x = self.bn2(x)
+        # 批量归一化层
         x = self.relu(x)
+        # relu
         x = self.layer1(x)
+        # 进一个bottleneck，变为B * 256 * H/4 * H/4
 
         x_list = []
         for i in range(self.stage2_cfg['NUM_BRANCHES']):
@@ -487,6 +528,7 @@ class PoseHigherResolutionNet(nn.Module):
             else:
                 x_list.append(x)
         y_list = self.stage2(x_list)
+        # 每个stage都包含了 1. 预处理（1-2 2-3 3-4） 2. resnet多层 3. fuse层混合
 
         x_list = []
         for i in range(self.stage3_cfg['NUM_BRANCHES']):
@@ -503,6 +545,8 @@ class PoseHigherResolutionNet(nn.Module):
             else:
                 x_list.append(y_list[i])
         y_list = self.stage4(x_list)
+        # 最后一个stage会统一到一层
+
 
         final_outputs = []
         x = y_list[0]
@@ -512,10 +556,13 @@ class PoseHigherResolutionNet(nn.Module):
         for i in range(self.num_deconvs):
             if self.deconv_config.CAT_OUTPUT[i]:
                 x = torch.cat((x, y), 1)
+                # 把进入final前后的concat起来
 
             x = self.deconv_layers[i](x)
+            # 放大一倍
             y = self.final_layers[i+1](x)
             final_outputs.append(y)
+            # 如果有反卷积那么final_outputs就会有不同分辨率的结果
 
         return final_outputs
 

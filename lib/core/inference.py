@@ -85,12 +85,14 @@ def get_multi_stage_outputs(
     outputs = model(image)
     for i, output in enumerate(outputs):
         if len(outputs) > 1 and i != len(outputs) - 1:
+            # 不止一个并且不不是最后一个 也就是没有反卷积
             output = torch.nn.functional.interpolate(
                 output,
                 size=(outputs[-1].size(2), outputs[-1].size(3)),
                 mode='bilinear',
                 align_corners=False
             )
+            # 插值到和最后一个一样 和反卷积一个shape
 
         offset_feat = cfg.DATASET.NUM_JOINTS \
             if cfg.LOSS.WITH_HEATMAPS_LOSS[i] else 0

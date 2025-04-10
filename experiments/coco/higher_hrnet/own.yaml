@@ -1,4 +1,4 @@
-AUTO_RESUME: True
+AUTO_RESUME: False
 DATA_DIR: ''
 GPUS: (0,)
 LOG_DIR: log
