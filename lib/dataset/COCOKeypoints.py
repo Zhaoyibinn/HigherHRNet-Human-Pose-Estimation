@@ -63,7 +63,7 @@ class CocoKeypoints(CocoDataset):
 
     def __getitem__(self, idx):
         img, anno = super().__getitem__(idx)
-
+        # 这里的img还是原图的形状
         mask = self.get_mask(anno, idx)
 
         anno = [
@@ -86,7 +86,7 @@ class CocoKeypoints(CocoDataset):
         for scale_id in range(self.num_scales):
             target_t = self.heatmap_generator[scale_id](joints_list[scale_id])
             joints_t = self.joints_generator[scale_id](joints_list[scale_id])
-
+            # joints_generator设定最大30个人，在我们这里就是三十个点，所以shape是30 * 1 * 2 后面没有的就是空的0
             target_list.append(target_t.astype(np.float32))
             mask_list[scale_id] = mask_list[scale_id].astype(np.float32)
             joints_list[scale_id] = joints_t.astype(np.int32)

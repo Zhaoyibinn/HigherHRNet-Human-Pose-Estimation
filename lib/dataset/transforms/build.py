@@ -13,6 +13,9 @@ from . import transforms as T
 
 
 FLIP_CONFIG = {
+
+    # 这就是代表水平反转后的idx排序，原本是1234......
+
     # 'COCO': [
     #     0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15
     # ],
@@ -82,9 +85,12 @@ def build_transforms(cfg, is_train=True):
                 max_translate,
                 scale_aware_sigma=cfg.DATASET.SCALE_AWARE_SIGMA
             ),
+            # 随机仿射变换
             T.RandomHorizontalFlip(coco_flip_index, output_size, flip),
+            # 随机水平翻转
             T.ToTensor(),
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            # 归一化
         ]
     )
 
