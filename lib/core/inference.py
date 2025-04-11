@@ -106,6 +106,7 @@ def get_multi_stage_outputs(
 
     if num_heatmaps > 0:
         heatmaps.append(heatmaps_avg/num_heatmaps)
+        # 出来两个heatmap结果 所以求个平均
 
     if with_flip:
         if 'coco' in cfg.DATASET.DATASET:

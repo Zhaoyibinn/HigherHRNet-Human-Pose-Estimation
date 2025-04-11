@@ -227,18 +227,23 @@ def main():
                             cfg, model, image_resized, cfg.TEST.FLIP_TEST,
                             cfg.TEST.PROJECT2IMAGE, base_size
                         )
-                        heatmap_show_0 = np.array(heatmaps[0][0][0].cpu().detach())
+                        
 
                         final_heatmaps, tags_list = aggregate_results(
                             cfg, s, final_heatmaps, tags_list, heatmaps, tags
                         )
 
                     final_heatmaps = final_heatmaps / float(len(cfg.TEST.SCALE_FACTOR))
+
+
+                    heatmap_show_0 = np.array(final_heatmaps[0][0].cpu().detach())
+
+
                     tags = torch.cat(tags_list, dim=4)
                     grouped, scores = parser.parse(
                         final_heatmaps, tags, cfg.TEST.ADJUST, cfg.TEST.REFINE
                     )
-
+                    print(scores)
                     final_results = get_final_preds(
                         grouped, center, scale,
                         [final_heatmaps.size(3), final_heatmaps.size(2)]

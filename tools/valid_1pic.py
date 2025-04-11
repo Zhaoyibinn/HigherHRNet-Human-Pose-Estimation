@@ -182,7 +182,7 @@ def main():
                     cfg, model, image_resized, cfg.TEST.FLIP_TEST,
                     cfg.TEST.PROJECT2IMAGE, base_size
                 )
-                heatmap_show_0 = np.array(heatmaps[0][0][0].cpu().detach())
+                # heatmap_show_0 = np.array(heatmaps[0][0][0].cpu().detach())
                 final_heatmaps, tags_list = aggregate_results(
                     cfg, s, final_heatmaps, tags_list, heatmaps, tags
                 )
@@ -192,7 +192,7 @@ def main():
             grouped, scores = parser.parse(
                 final_heatmaps, tags, cfg.TEST.ADJUST, cfg.TEST.REFINE
             )
-
+            
             final_results = get_final_preds(
                 grouped, center, scale,
                 [final_heatmaps.size(3), final_heatmaps.size(2)]
